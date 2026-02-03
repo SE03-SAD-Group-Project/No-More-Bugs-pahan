@@ -1,0 +1,14 @@
+/* src/index.css */
+body {
+  margin: 0;
+  font-family: 'League Spartan', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #000000; /* Black background for the whole page */
+  color: #ffffff;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}

@@ -51,21 +51,23 @@ const Dashboard = ({ onLogout }) => {
       })
       .catch(err => console.error("Error fetching workers:", err));
 
-    // 3. Fetch Paid Customers
-    fetch('http://localhost:3001/get-paid-customers')
+    // 3. Fetch Service Payments (Modified to show 'servicepayments' data)
+    fetch('http://localhost:3001/get-service-payments')
       .then(res => res.json())
       .then(data => {
         if(Array.isArray(data)) {
             const formattedData = data.map(item => ({
                 ...item,
-                generatedSlipId: Math.floor(10000 + Math.random() * 90000), 
-                amountInput: '', 
+                // Use the real Transaction ID as the Slip ID
+                generatedSlipId: item.transactionId || "N/A", 
+                // Pre-fill the amount input with the value from the database
+                amountInput: item.amount ? item.amount.toString() : '', 
                 isEditing: false 
             }));
             setPaidCustomers(formattedData);
         }
       })
-      .catch(err => console.error("Error fetching paid customers:", err));
+      .catch(err => console.error("Error fetching service payments:", err));
 
     // 4. Fetch Real Customers from 'users' collection
     fetch('http://localhost:3001/get-customers')

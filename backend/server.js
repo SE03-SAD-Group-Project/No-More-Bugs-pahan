@@ -298,6 +298,35 @@ app.put('/toggle-customer-status/:id', async (req, res) => {
 
 
 
+// ==========================================
+//  PART 8: SERVICE PAYMENTS (From 'servicepayments' Collection)
+// ==========================================
+
+// 1. Define the Schema matching your MongoDB data
+const ServicePaymentSchema = new mongoose.Schema({
+    customerName: String,
+    email: String,
+    amount: Number,
+    paymentStatus: String,
+    transactionId: String,
+    createdAt: { type: Date, default: Date.now }
+});
+
+// 2. Create the Model
+// IMPORTANT: The third argument 'servicepayments' forces it to look at your existing collection
+const ServicePaymentModel = mongoose.model("servicepayments", ServicePaymentSchema, "servicepayments");
+
+// 3. API Route to Get Data
+app.get('/get-service-payments', async (req, res) => {
+    try {
+        const payments = await ServicePaymentModel.find({});
+        res.json(payments);
+    } catch (err) {
+        res.json({ error: err.message });
+    }
+});
+
+
 
 // --- 7. START SERVER ---
 app.listen(3001, () => {

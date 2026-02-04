@@ -82,11 +82,35 @@ const RequestSchema = new mongoose.Schema({
 
 const RequestModel = mongoose.model("reports", RequestSchema);
 
+
 // --- 6. GET REPORTS ROUTE ---
 app.get('/get-reports', async (req, res) => {
     try {
         const allRequests = await RequestModel.find({});
         res.json(allRequests);
+    } catch (err) {
+        res.json({ error: err.message });
+    }
+});
+
+// ✅ NEW: Update Report Status (To show 'Approved')
+app.put('/update-report-status/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { paymentStatus } = req.body;
+        await RequestModel.findByIdAndUpdate(id, { paymentStatus });
+        res.json({ status: "ok" });
+    } catch (err) {
+        res.json({ error: err.message });
+    }
+});
+
+// ✅ NEW: Delete Report
+app.delete('/delete-report/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await RequestModel.findByIdAndDelete(id);
+        res.json({ status: "ok" });
     } catch (err) {
         res.json({ error: err.message });
     }
@@ -326,7 +350,21 @@ app.get('/get-service-payments', async (req, res) => {
     }
 });
 
-
+// ✅ NEW: Update Report Status (Approve)
+// This saves "Approved" to the database so it persists after refresh.
+app.put('/update-report-status/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { paymentStatus } = req.body;
+        
+        // This updates the specific request in the 'reports' collection
+        await RequestModel.findByIdAndUpdate(id, { paymentStatus });
+        
+        res.json({ status: "ok" });
+    } catch (err) {
+        res.json({ error: err.message });
+    }
+});
 
 // --- 7. START SERVER ---
 app.listen(3001, () => {

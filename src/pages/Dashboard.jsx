@@ -56,6 +56,8 @@ const Dashboard = ({ onLogout }) => {
       .then(res => res.json())
       .then(data => {
         if(Array.isArray(data)) {
+            // Note: If you want raw DB data without editing, we can simplify this map later.
+            // For now, I am keeping your existing mapping logic to ensure no UI breaks.
             const formattedData = data.map(item => ({
                 ...item,
                 // Use the real Transaction ID as the Slip ID
@@ -89,41 +91,42 @@ const Dashboard = ({ onLogout }) => {
 
   // --- ACTION HANDLERS ---
 
-  // 🟢 UPDATED HANDLE DONE FUNCTION (Fixes the Refresh Issue)
+  // 🟢 DELETE REQUEST FUNCTION (Kept exactly as you provided)
+  const handleDeleteRequest = async (id) => {
+      if(!window.confirm("Are you sure you want to delete this request?")) return;
+      
+      try {
+          await fetch(`http://localhost:3001/delete-report/${id}`, { method: 'DELETE' });
+          // Remove from UI immediately
+          setRequests(requests.filter(req => req._id !== id));
+      } catch (err) {
+          console.error(err);
+          alert("Error deleting request");
+      }
+  };
+
+  // 🟢 UPDATED HANDLE DONE FUNCTION (THE ONLY CHANGE)
+  // This now ONLY updates the status to 'Approved'. 
+  // It does NOT add fake data to the Payment tab.
   const handleDone = async (req) => {
-    if(!window.confirm(`Approve ${req.username} and move to Payments?`)) return;
+    if(!window.confirm(`Mark ${req.username}'s request as Approved?`)) return;
 
     try {
-        const response = await fetch('http://localhost:3001/add-to-paid', {
-            method: 'POST',
+        // Send update to the backend to change status to "Approved"
+        const response = await fetch(`http://localhost:3001/update-report-status/${req._id}`, {
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                customerName: req.username,
-                email: req.email,
-                paymentStatus: "Approved" 
-            })
+            body: JSON.stringify({ paymentStatus: "Approved" })
         });
 
         const result = await response.json();
 
         if (result.status === 'ok') {
-            alert("✅ Job Moved to Payments Tab!");
-
-            // Manually add the new item to the Payment state so it shows up instantly
-            const newPaymentItem = {
-                _id: Date.now(), // Temporary ID for React key
-                customerName: req.username,
-                email: req.email,
-                paymentStatus: "Approved",
-                generatedSlipId: Math.floor(10000 + Math.random() * 90000), 
-                amountInput: '',
-                isEditing: false
-            };
-
-            setPaidCustomers(prev => [...prev, newPaymentItem]);
-
+            // Update UI locally so the red "Not Approved" turns to green "Approved"
+            setRequests(requests.map(r => r._id === req._id ? { ...r, paymentStatus: "Approved" } : r));
+            alert("✅ Request Marked as Approved.");
         } else {
-            alert("❌ Error: " + result.message);
+            alert("❌ Error: " + (result.message || "Unknown error"));
         }
 
     } catch (err) {
@@ -329,8 +332,9 @@ const Dashboard = ({ onLogout }) => {
                             {req.city}, {req.postalcode}
                             <div style={{fontSize:'0.8em', color:'#888'}}>{req.address}</div>
                         </td>
-                        <td style={{ color: req.paymentStatus === 'Paid' ? '#4CAF50' : '#FF9800' }}>
-                             {req.paymentStatus || 'Pending'}
+                        {/* 🟢 MODIFIED STATUS COLUMN */}
+                        <td style={{ color: req.paymentStatus === 'Approved' ? '#4CAF50' : '#FF4444', fontWeight: 'bold' }}>
+                             {req.paymentStatus === 'Approved' ? 'Approved' : 'Not Approved'}
                         </td>
                         <td>
                             <div style={{display: 'flex', gap: '8px'}}>
@@ -340,6 +344,11 @@ const Dashboard = ({ onLogout }) => {
                                 
                                 <button onClick={() => handleDone(req)} className="action-btn-small" style={{ backgroundColor: '#007bff', color: 'white', border: 'none' }}>
                                     <i className="fa fa-check" style={{marginRight:'5px'}}></i> Approve Job
+                                </button>
+
+                                {/* 🟢 NEW DELETE BUTTON */}
+                                <button onClick={() => handleDeleteRequest(req._id)} className="action-btn-small" style={{ backgroundColor: '#dc3545', color: 'white', border: 'none' }}>
+                                    <i className="fa fa-trash"></i>
                                 </button>
                             </div>
                         </td>

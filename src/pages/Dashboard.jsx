@@ -6,7 +6,9 @@ import logo from '../assets/nomorebugs_logo.png';
 const Dashboard = ({ onLogout }) => {
   // --- STATE MANAGEMENT ---
   const [activeView, setActiveView] = useState('requests');
-  const [userTab, setUserTab] = useState('workers'); 
+  const [userTab, setUserTab] = useState('workers');
+  // --- REFRESH STATE ---
+  const [isRefreshing, setIsRefreshing] = useState(false); 
 
   // --- DATABASE DATA ---
   const [requests, setRequests] = useState([]); 
@@ -33,36 +35,45 @@ const Dashboard = ({ onLogout }) => {
       emailFile: null
   });
 
-  // --- FETCH DATA ON LOAD ---
+ // --- REUSABLE FETCH FUNCTION (New!) ---
+  const fetchWorkers = () => {
+    setIsRefreshing(true); // Turn on spinner
+    
+    // We add ?t=... to the URL to trick the browser into thinking it's a new request
+    fetch(`http://localhost:3001/get-workers?t=${new Date().getTime()}`)
+      .then(res => res.json())
+      .then(data => {
+        if(Array.isArray(data)) {
+            setWorkers(data);
+            console.log("Updated Workers List:", data); // Check console to see the real data
+        }
+        setIsRefreshing(false); // Turn off spinner
+      })
+      .catch(err => {
+        console.error("Error fetching workers:", err);
+        setIsRefreshing(false);
+      });
+  };
+
+  // --- FETCH DATA ON LOAD (Updated!) ---
   useEffect(() => {
-    // 1. Fetch Requests
+    // 1. Fetch Workers (Calls the function above)
+    fetchWorkers();
+
+    // 2. Fetch Requests (Keeps your Requests tab working)
     fetch('http://localhost:3001/get-reports')
       .then(res => res.json())
-      .then(data => {
-        if(Array.isArray(data)) setRequests(data);
-      })
+      .then(data => { if(Array.isArray(data)) setRequests(data); })
       .catch(err => console.error("Error fetching requests:", err));
 
-    // 2. Fetch Workers
-    fetch('http://localhost:3001/get-workers')
-      .then(res => res.json())
-      .then(data => {
-        if(Array.isArray(data)) setWorkers(data);
-      })
-      .catch(err => console.error("Error fetching workers:", err));
-
-    // 3. Fetch Service Payments (Modified to show 'servicepayments' data)
+    // 3. Fetch Service Payments (Keeps your Payments tab working)
     fetch('http://localhost:3001/get-service-payments')
       .then(res => res.json())
       .then(data => {
         if(Array.isArray(data)) {
-            // Note: If you want raw DB data without editing, we can simplify this map later.
-            // For now, I am keeping your existing mapping logic to ensure no UI breaks.
             const formattedData = data.map(item => ({
                 ...item,
-                // Use the real Transaction ID as the Slip ID
                 generatedSlipId: item.transactionId || "N/A", 
-                // Pre-fill the amount input with the value from the database
                 amountInput: item.amount ? item.amount.toString() : '', 
                 isEditing: false 
             }));
@@ -71,12 +82,10 @@ const Dashboard = ({ onLogout }) => {
       })
       .catch(err => console.error("Error fetching service payments:", err));
 
-    // 4. Fetch Real Customers from 'users' collection
+    // 4. Fetch Real Customers (Keeps your Customer tab working)
     fetch('http://localhost:3001/get-customers')
       .then(res => res.json())
-      .then(data => {
-        if(Array.isArray(data)) setCustomers(data);
-      })
+      .then(data => { if(Array.isArray(data)) setCustomers(data); })
       .catch(err => console.error("Error fetching customers:", err));
 
   }, []);
@@ -661,9 +670,26 @@ const Dashboard = ({ onLogout }) => {
         return (
           <div className="section-container">
             <h1 style={{ color: '#FFD700' }}>User Management</h1>
-            <div style={{ margin: '20px 0' }}>
+            <div style={{ margin: '20px 0', display: 'flex', alignItems: 'center' }}>
               <button onClick={() => setUserTab('workers')} className={`sub-tab-btn ${userTab === 'workers' ? 'active' : ''}`}>Workers</button>
               <button onClick={() => setUserTab('customers')} className={`sub-tab-btn ${userTab === 'customers' ? 'active' : ''}`}>Customers</button>
+              
+              {/* REFRESH BUTTON */}
+              <button 
+                  onClick={fetchWorkers} 
+                  style={{
+                      marginLeft: '20px', 
+                      padding: '8px 15px',
+                      backgroundColor: '#FFD700', 
+                      border: 'none',
+                      borderRadius: '5px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      color: 'black'
+                  }}
+              >
+                  ↻ Refresh List
+              </button>
             </div>
 
             {userTab === 'workers' && (

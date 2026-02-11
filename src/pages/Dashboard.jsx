@@ -7,6 +7,7 @@ const Dashboard = ({ onLogout }) => {
   // --- STATE MANAGEMENT ---
   const [activeView, setActiveView] = useState('requests');
   const [userTab, setUserTab] = useState('workers');
+const [selectedManualWorker, setSelectedManualWorker] = useState("");
   // --- REFRESH STATE ---
   const [isRefreshing, setIsRefreshing] = useState(false); 
 
@@ -156,14 +157,66 @@ const Dashboard = ({ onLogout }) => {
     ));
   };
 
-  const handleApprovePayment = async (customer) => {
+ const handleApprovePayment = async (customer) => {
+      // 1. Safety Check: Amount must be entered
       if(!customer.amountInput) {
           alert("⚠️ Please enter an Amount before approving.");
           return;
       }
 
+      // ---------------------------------------------------------
+      // 🧠 STEP 1: THE INTELLIGENT LOOKUP
+      // ---------------------------------------------------------
+      // Find original request. If not found, default to empty object {} to prevent crashes.
+      const originalRequest = requests.find(r => 
+          r.email && customer.email && 
+          r.email.toLowerCase().trim() === customer.email.toLowerCase().trim()
+      ) || {}; 
+
+      // Safely extract data (If missing, these become empty strings)
+      const targetPostalCode = originalRequest.postalcode || ""; 
+      const targetCity = originalRequest.city || ""; 
+      const targetBug = originalRequest.bugType || ""; 
+
+      // ---------------------------------------------------------
+      // 🤝 STEP 2: THE MATCHING ALGORITHM (Skill + Location)
+      // ---------------------------------------------------------
+      let assignedWorkerName = null;
+      let dispatchStatus = 'Ready for Dispatch';
+      
+      // Find a worker (Only if we have a target bug to match)
+      const matchedWorker = workers.find(worker => {
+          if (worker.status !== 'Verified') return false;
+          
+          // A. Skill Match (Does worker have the specific skill?)
+          // We use optional chaining (?.) to prevent errors if skills array is missing
+          const workerSkills = worker.skills || [];
+          // If the customer didn't specify a bug, we skip the skill check
+          const hasSkill = targetBug ? workerSkills.includes(targetBug) : true;
+          
+          if (targetBug && !hasSkill) return false; // Strict Skill Check: No skill = No job
+
+          // B. Location Match (Postal Code OR City)
+          const workerAddress = worker.address ? worker.address.toLowerCase() : "";
+          const hasLocation = (targetPostalCode && workerAddress.includes(targetPostalCode)) || 
+                              (targetCity && workerAddress.includes(targetCity.toLowerCase()));
+          
+          return hasLocation;
+      });
+
+      // Decide the Status
+      if (matchedWorker) {
+          assignedWorkerName = matchedWorker.fullName;
+          dispatchStatus = `Auto-Assigned to ${matchedWorker.fullName}`;
+      } else {
+          dispatchStatus = 'Manual Dispatch Needed (No Skill/Location Match)';
+      }
+
+      // ---------------------------------------------------------
+      // 🚀 STEP 3: BACKEND CALL & UI UPDATE
+      // ---------------------------------------------------------
       const payload = {
-          slipId: customer.generatedSlipId.toString(),
+          slipId: customer.transactionId || "UNKNOWN",
           customerName: customer.customerName,
           email: customer.email,
           amount: customer.amountInput + " LKR", 
@@ -178,21 +231,34 @@ const Dashboard = ({ onLogout }) => {
           });
           
           const result = await response.json();
+          
           if(result.status === 'ok') {
-              alert(`✅ Payment Approved for Slip #${payload.slipId}`);
-              setPaidCustomers(paidCustomers.filter(c => c._id !== customer._id));
-              setDispatchQueue([...dispatchQueue, { 
+              // 1. Show the "Smart" Popup
+              if(matchedWorker) {
+                  alert(`✅ Payment Approved!\n\n✨ MATCH FOUND:\nWorker: ${matchedWorker.fullName}\nSkill: ${targetBug}\nLocation: ${targetCity}`);
+              } else {
+                  alert(`✅ Payment Approved!\n\n⚠️ No auto-match found for "${targetBug}" in ${targetCity}.\nAdded to Manual Dispatch.`);
+              }
+
+              // 2. Remove from "Payments" Table
+              setPaidCustomers(prev => prev.filter(c => c._id !== customer._id));
+              
+              // 3. Add to "Dispatch" Table (NO CALENDAR DATE)
+              setDispatchQueue(prev => [...prev, { 
                   reqId: payload.slipId, 
                   customer: payload.customerName, 
-                  day: '2025-10-28', 
-                  status: 'Ready for Dispatch' 
+                  location: targetCity ? `${targetCity}` : "Unknown Location",
+                  bug: targetBug || "General Request", 
+                  status: dispatchStatus,
+                  worker: assignedWorkerName
               }]);
+
           } else {
-              alert("❌ Error: " + result.message);
+              alert("❌ Error from Server: " + result.message);
           }
       } catch (err) {
-          console.error(err);
-          alert("Server Error");
+          console.error("Payment Approval Failed:", err);
+          alert("❌ System Error. Check console for details.");
       }
   };
 
@@ -613,30 +679,130 @@ const Dashboard = ({ onLogout }) => {
         );
 
       case 'dispatch':
-        return (
-          <div className="section-container">
-             <h1 style={{ color: '#FFD700' }}>Worker Dispatch</h1>
-             {dispatchQueue.length === 0 ? <p style={{color:'#888'}}>No jobs waiting.</p> : (
-               dispatchQueue.map((job, index) => (
-                 <div key={index} className="dispatch-card">
-                   <div style={{display:'flex', justifyContent:'space-between'}}>
-                     <span><strong>Client:</strong> {job.customer}</span>
-                     <span><strong>Status:</strong> <span style={{color: '#FFD700'}}>{job.status}</span></span>
-                   </div>
-                   {!job.status.includes('Assigned') && (
-                     <div style={{marginTop: '10px'}}>
-                       {workers.filter(w => w.status === 'Verified').map(worker => (
-                         <button key={worker.id} onClick={() => handleAssignWorker(index, worker.name)} className="worker-btn avail">
-                           {worker.name} ({worker.location})
-                         </button>
-                       ))}
-                     </div>
-                   )}
-                 </div>
-               ))
-             )}
-          </div>
-        );
+          return (
+            <div className="section-container">
+              <h1 style={{ color: '#FFD700' }}>Worker Dispatch Control</h1>
+              
+              {dispatchQueue.length === 0 ? (
+                <div style={{textAlign:'center', padding:'40px', color:'#666'}}>
+                  <i className="fa fa-check-circle" style={{fontSize:'3rem', marginBottom:'10px'}}></i>
+                  <p>All clear! No jobs waiting for dispatch.</p>
+                </div>
+              ) : (
+                <div className="dispatch-list">
+                  {dispatchQueue.map((item, index) => (
+                    <div key={index} style={{
+                      backgroundColor: '#1e1e1e', 
+                      padding: '20px', 
+                      marginBottom: '15px', 
+                      borderRadius: '10px',
+                      borderLeft: item.worker ? '5px solid #4CAF50' : '5px solid #FF9800', 
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+                    }}>
+                      
+                      {/* LEFT: JOB DETAILS */}
+                      <div style={{flex: 1}}>
+                        <h3 style={{color: 'white', margin: '0 0 8px 0', fontSize:'1.2rem'}}>
+                          {item.customer} 
+                          <span style={{fontSize:'0.8rem', color:'#888', fontWeight:'normal', marginLeft:'10px'}}>
+                             (Slip #{item.reqId})
+                          </span>
+                        </h3>
+                        <div style={{color: '#aaa', fontSize: '0.9rem', lineHeight:'1.6'}}>
+                          <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+                            <span>📍 <strong>Location:</strong> <span style={{color:'#FFD700'}}>{item.location || "Unknown"}</span></span>
+                            <span>🐛 <strong>Issue:</strong> {item.bug || "General Pest"}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* RIGHT: ACTION CENTER */}
+                      <div style={{textAlign: 'right', minWidth: '300px'}}>
+                        
+                        {/* SCENARIO A: ALREADY ASSIGNED (SMART MATCH) */}
+                        {item.worker ? (
+                          <div>
+                            <div style={{marginBottom:'10px'}}>
+                              <span style={{backgroundColor:'rgba(76, 175, 80, 0.2)', color:'#4CAF50', padding:'5px 10px', borderRadius:'5px', fontSize:'0.8rem', border:'1px solid #4CAF50'}}>
+                                ✨ Auto-Assigned
+                              </span>
+                            </div>
+                            <h4 style={{color:'white', margin:'0 0 10px 0'}}>👤 {item.worker}</h4>
+                            <button style={{
+                              backgroundColor:'#4CAF50', color:'white', border:'none', padding:'8px 15px', borderRadius:'5px', cursor:'pointer', fontWeight:'bold'
+                            }} onClick={() => {
+                                // In a real app, this would send an email/SMS to the worker
+                                alert(`🚀 Job Officially Dispatched to ${item.worker}!\n\n(Notification sent to worker)`);
+                                // Optional: Remove from list after dispatching
+                                // const newQueue = dispatchQueue.filter((_, i) => i !== index);
+                                // setDispatchQueue(newQueue);
+                            }}>
+                              Confirm Dispatch 🚀
+                            </button>
+                          </div>
+                        ) : (
+                          
+                        /* SCENARIO B: MANUAL SELECTION NEEDED */
+                          <div style={{display:'flex', flexDirection:'column', alignItems:'flex-end'}}>
+                             <div style={{marginBottom:'10px'}}>
+                              <span style={{backgroundColor:'rgba(255, 152, 0, 0.2)', color:'#FF9800', padding:'5px 10px', borderRadius:'5px', fontSize:'0.8rem', border:'1px solid #FF9800'}}>
+                                ⚠️ Manual Action Needed
+                              </span>
+                            </div>
+                            
+                            <div style={{display:'flex', gap:'10px'}}>
+                              <select 
+                                style={{
+                                    padding:'8px', 
+                                    borderRadius:'5px', 
+                                    backgroundColor:'#333', 
+                                    color:'white', 
+                                    border:'1px solid #555',
+                                    outline: 'none'
+                                }}
+                                onChange={(e) => setSelectedManualWorker(e.target.value)}
+                                value={selectedManualWorker}
+                              >
+                                <option value="">-- Select a Worker --</option>
+                                {workers
+                                  .filter(w => w.status === 'Verified') 
+                                  .map(w => (
+                                    <option key={w._id} value={w.fullName}>
+                                      {w.fullName} — {w.address ? w.address.split(',')[0] : 'No Loc'}
+                                    </option>
+                                ))}
+                              </select>
+                              
+                              <button style={{
+                                backgroundColor:'#FF9800', color:'white', border:'none', padding:'8px 15px', borderRadius:'5px', cursor:'pointer', fontWeight:'bold'
+                              }} onClick={() => {
+                                 if(selectedManualWorker) {
+                                    const updatedQueue = [...dispatchQueue];
+                                    updatedQueue[index].worker = selectedManualWorker;
+                                    updatedQueue[index].status = `Manually Assigned to ${selectedManualWorker}`;
+                                    setDispatchQueue(updatedQueue);
+                                    setSelectedManualWorker(""); // Reset dropdown
+                                    alert(`✅ Manually assigned to ${selectedManualWorker}`);
+                                 } else {
+                                   alert("Please select a worker first!");
+                                 }
+                              }}>
+                                Assign
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
 
       case 'calendar':
         return (

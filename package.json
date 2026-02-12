@@ -12,6 +12,7 @@
   "dependencies": {
     "googleapis": "^169.0.0",
     "jspdf": "^3.0.4",
+    "jspdf-autotable": "^5.0.7",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.12",
     "react": "^19.2.0",

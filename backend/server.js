@@ -366,6 +366,52 @@ app.put('/update-report-status/:id', async (req, res) => {
     }
 });
 
+// ----------------------------------------------------------------
+// 📱 ENDPOINT FOR WORKER APP (Hidden "Active Jobs" Collection)
+// ----------------------------------------------------------------
+
+// 1. Define the Schema for the Mobile App
+const activeJobSchema = new mongoose.Schema({
+    pinCode: String,          // The Key (e.g., 459921)
+    workerName: String,
+    workerEmail: String,
+    customerName: String,
+    customerAddress: String,  // Secret Address (Locked behind PIN)
+    serviceType: String,
+    status: { type: String, default: "In Progress" },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const ActiveJob = mongoose.model('active_jobs', activeJobSchema);
+
+// 2. The API Route to Save the Job
+app.post('/dispatch-job', async (req, res) => {
+    try {
+        const newJob = new ActiveJob(req.body);
+        await newJob.save();
+        res.json({ status: "ok", message: "Job secured in DB for Worker App" });
+    } catch (error) {
+        res.json({ status: "error", message: error.message });
+    }
+});
+// --- PASTE THIS WITH YOUR OTHER ROUTES ---
+
+app.put('/toggle-customer-status/:id', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body; 
+
+    try {
+        // MAKE SURE 'UserModel' MATCHES YOUR ACTUAL USER MODEL NAME
+        // It might be 'User', 'Users', or 'CustomerModel' in your code.
+        // Look at your /login route to see what you used.
+        await UserModel.findByIdAndUpdate(id, { status: status }); 
+        
+        res.json({ status: 'ok' });
+    } catch (err) {
+        res.json({ status: 'error', error: err.message });
+    }
+});
+
 // --- 7. START SERVER ---
 app.listen(3001, () => {
     console.log("🚀 Server is running on port 3001");

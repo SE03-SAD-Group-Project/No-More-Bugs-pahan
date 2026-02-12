@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import '../App.css'; 
 import logo from '../assets/nomorebugs_logo.png'; 
 
@@ -7,7 +8,7 @@ const Dashboard = ({ onLogout }) => {
   // --- STATE MANAGEMENT ---
   const [activeView, setActiveView] = useState('requests');
   const [userTab, setUserTab] = useState('workers');
-const [selectedManualWorker, setSelectedManualWorker] = useState("");
+  const [selectedManualWorker, setSelectedManualWorker] = useState("");
   // --- REFRESH STATE ---
   const [isRefreshing, setIsRefreshing] = useState(false); 
 
@@ -36,19 +37,16 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
       emailFile: null
   });
 
- // --- REUSABLE FETCH FUNCTION (New!) ---
+ // --- REUSABLE FETCH FUNCTION ---
   const fetchWorkers = () => {
-    setIsRefreshing(true); // Turn on spinner
-    
-    // We add ?t=... to the URL to trick the browser into thinking it's a new request
+    setIsRefreshing(true); 
     fetch(`http://localhost:3001/get-workers?t=${new Date().getTime()}`)
       .then(res => res.json())
       .then(data => {
         if(Array.isArray(data)) {
             setWorkers(data);
-            console.log("Updated Workers List:", data); // Check console to see the real data
         }
-        setIsRefreshing(false); // Turn off spinner
+        setIsRefreshing(false);
       })
       .catch(err => {
         console.error("Error fetching workers:", err);
@@ -56,18 +54,15 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
       });
   };
 
-  // --- FETCH DATA ON LOAD (Updated!) ---
+  // --- FETCH DATA ON LOAD ---
   useEffect(() => {
-    // 1. Fetch Workers (Calls the function above)
     fetchWorkers();
 
-    // 2. Fetch Requests (Keeps your Requests tab working)
     fetch('http://localhost:3001/get-reports')
       .then(res => res.json())
       .then(data => { if(Array.isArray(data)) setRequests(data); })
       .catch(err => console.error("Error fetching requests:", err));
 
-    // 3. Fetch Service Payments (Keeps your Payments tab working)
     fetch('http://localhost:3001/get-service-payments')
       .then(res => res.json())
       .then(data => {
@@ -83,7 +78,6 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
       })
       .catch(err => console.error("Error fetching service payments:", err));
 
-    // 4. Fetch Real Customers (Keeps your Customer tab working)
     fetch('http://localhost:3001/get-customers')
       .then(res => res.json())
       .then(data => { if(Array.isArray(data)) setCustomers(data); })
@@ -101,13 +95,10 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
 
   // --- ACTION HANDLERS ---
 
-  // 🟢 DELETE REQUEST FUNCTION (Kept exactly as you provided)
   const handleDeleteRequest = async (id) => {
       if(!window.confirm("Are you sure you want to delete this request?")) return;
-      
       try {
           await fetch(`http://localhost:3001/delete-report/${id}`, { method: 'DELETE' });
-          // Remove from UI immediately
           setRequests(requests.filter(req => req._id !== id));
       } catch (err) {
           console.error(err);
@@ -115,14 +106,10 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
       }
   };
 
-  // 🟢 UPDATED HANDLE DONE FUNCTION (THE ONLY CHANGE)
-  // This now ONLY updates the status to 'Approved'. 
-  // It does NOT add fake data to the Payment tab.
   const handleDone = async (req) => {
     if(!window.confirm(`Mark ${req.username}'s request as Approved?`)) return;
 
     try {
-        // Send update to the backend to change status to "Approved"
         const response = await fetch(`http://localhost:3001/update-report-status/${req._id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -132,7 +119,6 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
         const result = await response.json();
 
         if (result.status === 'ok') {
-            // Update UI locally so the red "Not Approved" turns to green "Approved"
             setRequests(requests.map(r => r._id === req._id ? { ...r, paymentStatus: "Approved" } : r));
             alert("✅ Request Marked as Approved.");
         } else {
@@ -158,53 +144,34 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
   };
 
  const handleApprovePayment = async (customer) => {
-      // 1. Safety Check: Amount must be entered
       if(!customer.amountInput) {
           alert("⚠️ Please enter an Amount before approving.");
           return;
       }
 
-      // ---------------------------------------------------------
-      // 🧠 STEP 1: THE INTELLIGENT LOOKUP
-      // ---------------------------------------------------------
-      // Find original request. If not found, default to empty object {} to prevent crashes.
       const originalRequest = requests.find(r => 
           r.email && customer.email && 
           r.email.toLowerCase().trim() === customer.email.toLowerCase().trim()
       ) || {}; 
 
-      // Safely extract data (If missing, these become empty strings)
       const targetPostalCode = originalRequest.postalcode || ""; 
       const targetCity = originalRequest.city || ""; 
       const targetBug = originalRequest.bugType || ""; 
 
-      // ---------------------------------------------------------
-      // 🤝 STEP 2: THE MATCHING ALGORITHM (Skill + Location)
-      // ---------------------------------------------------------
       let assignedWorkerName = null;
       let dispatchStatus = 'Ready for Dispatch';
       
-      // Find a worker (Only if we have a target bug to match)
       const matchedWorker = workers.find(worker => {
           if (worker.status !== 'Verified') return false;
-          
-          // A. Skill Match (Does worker have the specific skill?)
-          // We use optional chaining (?.) to prevent errors if skills array is missing
           const workerSkills = worker.skills || [];
-          // If the customer didn't specify a bug, we skip the skill check
           const hasSkill = targetBug ? workerSkills.includes(targetBug) : true;
-          
-          if (targetBug && !hasSkill) return false; // Strict Skill Check: No skill = No job
-
-          // B. Location Match (Postal Code OR City)
+          if (targetBug && !hasSkill) return false; 
           const workerAddress = worker.address ? worker.address.toLowerCase() : "";
           const hasLocation = (targetPostalCode && workerAddress.includes(targetPostalCode)) || 
                               (targetCity && workerAddress.includes(targetCity.toLowerCase()));
-          
           return hasLocation;
       });
 
-      // Decide the Status
       if (matchedWorker) {
           assignedWorkerName = matchedWorker.fullName;
           dispatchStatus = `Auto-Assigned to ${matchedWorker.fullName}`;
@@ -212,9 +179,6 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
           dispatchStatus = 'Manual Dispatch Needed (No Skill/Location Match)';
       }
 
-      // ---------------------------------------------------------
-      // 🚀 STEP 3: BACKEND CALL & UI UPDATE
-      // ---------------------------------------------------------
       const payload = {
           slipId: customer.transactionId || "UNKNOWN",
           customerName: customer.customerName,
@@ -233,24 +197,32 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
           const result = await response.json();
           
           if(result.status === 'ok') {
-              // 1. Show the "Smart" Popup
               if(matchedWorker) {
                   alert(`✅ Payment Approved!\n\n✨ MATCH FOUND:\nWorker: ${matchedWorker.fullName}\nSkill: ${targetBug}\nLocation: ${targetCity}`);
               } else {
                   alert(`✅ Payment Approved!\n\n⚠️ No auto-match found for "${targetBug}" in ${targetCity}.\nAdded to Manual Dispatch.`);
               }
 
-              // 2. Remove from "Payments" Table
               setPaidCustomers(prev => prev.filter(c => c._id !== customer._id));
               
-              // 3. Add to "Dispatch" Table (NO CALENDAR DATE)
+              // 👇 REPLACING ONLY THIS PART TO SAVE ADDRESS & MOBILE 👇
               setDispatchQueue(prev => [...prev, { 
                   reqId: payload.slipId, 
                   customer: payload.customerName, 
                   location: targetCity ? `${targetCity}` : "Unknown Location",
+                  
+                  // --- NEW DATA ADDED HERE ---
+                  fullAddress: originalRequest.address, 
+                  postalCode: targetPostalCode,
+                  mobile: originalRequest.contactNo,
+                  // ---------------------------
+
                   bug: targetBug || "General Request", 
                   status: dispatchStatus,
-                  worker: assignedWorkerName
+                  worker: assignedWorkerName,
+                  // We need the worker email for the button later
+                  workerEmail: matchedWorker ? matchedWorker.email : "", 
+                  isDispatched: false
               }]);
 
           } else {
@@ -277,28 +249,44 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
   };
 
   const generatePDF = () => {
-    const doc = new jsPDF();
-    doc.setFillColor(255, 215, 0); 
-    doc.rect(0, 0, 210, 40, 'F');
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(22);
-    doc.text("NO MORE BUGS - OFFICIAL DOCUMENT", 105, 25, null, null, "center");
-    
-    doc.setFontSize(12);
-    let y = 60;
-    doc.text(`Customer Name: ${mailForm.formName}`, 20, y); y += 10;
-    doc.text(`Address: ${mailForm.formAddress}`, 20, y); y += 10;
-    doc.text(`Date: ${mailForm.formDate}`, 20, y); y += 10;
-    
-    doc.setFontSize(14);
-    doc.text(`Estimated Amount: ${mailForm.formAmount} LKR`, 20, y); y += 15;
-    
-    doc.setFontSize(12);
-    doc.text("Description / Services:", 20, y); y += 10;
-    const splitDesc = doc.splitTextToSize(mailForm.formDescription, 170);
-    doc.text(splitDesc, 20, y);
+    try {
+      const doc = new jsPDF();
+      
+      // Yellow Header (Professional Look)
+      doc.setFillColor(255, 215, 0); 
+      doc.rect(0, 0, 210, 40, 'F');
+      doc.setTextColor(0, 0, 0); 
+      doc.setFontSize(22);
+      doc.text("NO MORE BUGS - QUOTATION", 105, 25, null, null, "center");
+      
+      // Customer Details (Text Mode - No Table to prevent crash)
+      doc.setFontSize(12);
+      let y = 60;
+      doc.text(`Customer Name: ${mailForm.formName || 'Valued Customer'}`, 20, y); y += 10;
+      doc.text(`Address: ${mailForm.formAddress || 'N/A'}`, 20, y); y += 10;
+      doc.text(`Date: ${mailForm.formDate || new Date().toLocaleDateString()}`, 20, y); y += 10;
+      doc.text(`Time: ${mailForm.formTime || ''} ${mailForm.formAmPm || ''}`, 20, y); y += 20;
+      
+      // Amount
+      doc.setFontSize(14);
+      doc.setFont(undefined, 'bold');
+      doc.text(`Estimated Amount: ${mailForm.formAmount || '0'} LKR`, 20, y); y += 20;
+      
+      // Description
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'normal');
+      doc.text("Service Description:", 20, y); y += 10;
+      
+      const desc = mailForm.formDescription || "General Pest Control Service";
+      const splitDesc = doc.splitTextToSize(desc, 170); // Wraps text so it fits
+      doc.text(splitDesc, 20, y);
 
-    doc.save(`${mailForm.formName}_Quotation.pdf`); 
+      // Download
+      doc.save(`${mailForm.formName || 'Quotation'}.pdf`);
+      
+    } catch (err) {
+      alert("PDF Error: " + err.message);
+    }
   };
 
   const sendRealMail = async (e) => {
@@ -340,13 +328,6 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
     } catch (err) { console.error(err); }
   };
 
-  const handleAssignWorker = (jobIndex, workerName) => {
-    const updatedQueue = [...dispatchQueue];
-    updatedQueue[jobIndex].status = `Assigned to ${workerName}`;
-    setDispatchQueue(updatedQueue);
-    alert(`Job Sheet PDF sent to ${workerName}.`);
-  };
-
   const toggleDate = (day) => {
     const isJob = scheduledJobs.find(j => j.day === day);
     if (isJob) { alert(`Cannot block. Scheduled job: ${isJob.client}`); return; }
@@ -355,11 +336,8 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
   };
   const nextJob = scheduledJobs.filter(job => job.day >= currentDay).sort((a, b) => a.day - b.day)[0];
 
-  // Connects to backend to Ban/Unban users
   const toggleBanCustomer = async (id, currentStatus) => {
     const newStatus = (currentStatus === 'Active' || !currentStatus) ? 'Banned' : 'Active';
-    
-    // Optimistic UI Update 
     setCustomers(customers.map(c => c._id === id ? { ...c, status: newStatus } : c));
 
     try {
@@ -374,6 +352,97 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
     }
   };
 
+ // ---------------------------------------------------------
+  // 🚀 HANDLE CONFIRM DISPATCH (CRASH-PROOF VERSION)
+  // ---------------------------------------------------------
+  const handleConfirmDispatch = async (jobItem) => {
+      // 1. Get Worker Details (or use dummy data if missing)
+      let workerFullDetails = workers.find(w => w.fullName === jobItem.worker);
+      if (!workerFullDetails) {
+          // Fallback to prevent crash if worker isn't found
+          workerFullDetails = { fullName: jobItem.worker || "Worker", email: "worker@test.com", mobile: "000-000-0000" };
+      }
+
+      const randomPin = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // -------------------------------------------------------
+      // 📄 GENERATE PDF (TEXT MODE - NO TABLES)
+      // -------------------------------------------------------
+      try {
+          const doc = new jsPDF();
+          
+          // Green Header Box
+          doc.setFillColor(40, 167, 69);
+          doc.rect(0, 0, 210, 30, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(22);
+          doc.text("SERVICE CONFIRMATION", 105, 20, null, null, "center");
+
+          // The PIN
+          doc.setTextColor(0, 0, 0);
+          doc.setFontSize(16);
+          doc.text("🔐 YOUR SECURITY PIN:", 105, 50, null, null, "center");
+          doc.setFontSize(40);
+          doc.setTextColor(220, 53, 69); // Red
+          doc.text(randomPin, 105, 65, null, null, "center");
+          
+          // Worker Details (Simple List)
+          doc.setFontSize(12);
+          doc.setTextColor(0, 0, 0);
+          doc.text(`WORKER NAME:   ${workerFullDetails.fullName}`, 20, 90);
+          doc.text(`CONTACT NO:    ${workerFullDetails.mobile}`, 20, 105);
+          doc.text(`EMAIL:         ${workerFullDetails.email}`, 20, 120);
+          
+          doc.setFontSize(10);
+          doc.setTextColor(100, 100, 100);
+          doc.text("(Please show this PIN to the worker when they arrive)", 105, 140, null, null, "center");
+
+          // Save it
+          doc.save(`Service_PIN_${jobItem.customer}.pdf`);
+      } catch (err) {
+          alert("PDF Generation Failed: " + err.message);
+          return; // Stop if PDF fails
+      }
+
+      // -------------------------------------------------------
+      // 💾 SAVE TO DB
+      // -------------------------------------------------------
+      const payload = {
+          pinCode: randomPin,
+          workerName: workerFullDetails.fullName,
+          workerEmail: workerFullDetails.email,
+          customerName: jobItem.customer,
+          customerAddress: jobItem.location,
+          serviceType: jobItem.bug
+      };
+
+      try {
+          const response = await fetch('http://localhost:3001/dispatch-job', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          });
+
+          if(response.ok) {
+              setDispatchQueue(prev => prev.map(item => {
+                  if (item.reqId === jobItem.reqId) {
+                      return { 
+                          ...item, 
+                          isDispatched: true, 
+                          pin: randomPin, 
+                          workerEmail: workerFullDetails.email 
+                      };
+                  }
+                  return item;
+              }));
+              alert("✅ DISPATCH SUCCESSFUL!\n\n1. PDF Downloaded.\n2. Job Saved to Database.\n3. Now use the email buttons.");
+          } else {
+              alert("⚠️ Server Error: Could not save job.");
+          }
+      } catch (err) {
+          alert("Network Error: " + err.message);
+      }
+  };
   // --- RENDER CONTENT ---
   const renderContent = () => {
     switch(activeView) {
@@ -407,7 +476,6 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
                             {req.city}, {req.postalcode}
                             <div style={{fontSize:'0.8em', color:'#888'}}>{req.address}</div>
                         </td>
-                        {/* 🟢 MODIFIED STATUS COLUMN */}
                         <td style={{ color: req.paymentStatus === 'Approved' ? '#4CAF50' : '#FF4444', fontWeight: 'bold' }}>
                              {req.paymentStatus === 'Approved' ? 'Approved' : 'Not Approved'}
                         </td>
@@ -421,7 +489,6 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
                                     <i className="fa fa-check" style={{marginRight:'5px'}}></i> Approve Job
                                 </button>
 
-                                {/* 🟢 NEW DELETE BUTTON */}
                                 <button onClick={() => handleDeleteRequest(req._id)} className="action-btn-small" style={{ backgroundColor: '#dc3545', color: 'white', border: 'none' }}>
                                     <i className="fa fa-trash"></i>
                                 </button>
@@ -445,165 +512,92 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
                   <h1 style={{ color: '#FFD700' }}>Generate Document & Send Mail</h1>
                   
                   <div style={{display:'flex', gap:'40px', flexWrap:'wrap'}}>
+                      {/* LEFT SIDE: PDF GENERATOR */}
                       <div className="mail-form-box" style={{flex:1, minWidth:'300px', background:'#222', padding:'20px', borderRadius:'8px', border:'1px solid #333'}}>
                           <h3 style={{color:'white', marginTop:0, borderBottom:'1px solid #333', paddingBottom:'10px'}}>1. PDF Details</h3>
                           
                           <div className="form-group" style={{marginTop:'15px'}}>
                               <label>Customer Name</label>
-                              <input 
-                                type="text" 
-                                value={mailForm.formName} 
-                                onChange={(e) => setMailForm({
-                                    ...mailForm, 
-                                    formName: e.target.value
-                                })} 
-                                style={{width:'100%', padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderRadius:'4px'}} 
-                              />
+                              <input type="text" value={mailForm.formName} onChange={(e) => setMailForm({ ...mailForm, formName: e.target.value })} style={{width:'100%', padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderRadius:'4px'}} />
                           </div>
-
                           <div className="form-group" style={{marginTop:'15px'}}>
                               <label>Address</label>
-                              <input 
-                                type="text" 
-                                value={mailForm.formAddress} 
-                                onChange={(e) => setMailForm({
-                                    ...mailForm, 
-                                    formAddress: e.target.value
-                                })} 
-                                style={{width:'100%', padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderRadius:'4px'}} 
-                              />
+                              <input type="text" value={mailForm.formAddress} onChange={(e) => setMailForm({ ...mailForm, formAddress: e.target.value })} style={{width:'100%', padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderRadius:'4px'}} />
                           </div>
-
                           <div style={{display:'flex', gap:'10px', marginTop:'15px'}}>
                               <div className="form-group" style={{flex:1}}>
                                   <label>Date</label>
-                                  <input 
-                                    type="date" 
-                                    value={mailForm.formDate} 
-                                    onChange={(e) => setMailForm({
-                                        ...mailForm, 
-                                        formDate: e.target.value
-                                    })} 
-                                    style={{width:'100%', padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderRadius:'4px'}} 
-                                  />
+                                  <input type="date" value={mailForm.formDate} onChange={(e) => setMailForm({ ...mailForm, formDate: e.target.value })} style={{width:'100%', padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderRadius:'4px'}} />
                               </div>
                               <div className="form-group" style={{flex:1}}>
                                   <label>Time</label>
                                   <div style={{display:'flex'}}>
-                                      <input 
-                                        type="text" 
-                                        placeholder="10:00" 
-                                        value={mailForm.formTime} 
-                                        onChange={(e) => setMailForm({
-                                            ...mailForm, 
-                                            formTime: e.target.value
-                                        })} 
-                                        style={{flex:1, padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderTopRightRadius:0, borderBottomRightRadius:0}} 
-                                      />
-                                      <select 
-                                        value={mailForm.formAmPm} 
-                                        onChange={(e) => setMailForm({
-                                            ...mailForm, 
-                                            formAmPm: e.target.value
-                                        })} 
-                                        style={{width:'60px', borderTopLeftRadius:0, borderBottomLeftRadius:0, background:'#444', color:'white', border:'1px solid #444'}}
-                                      >
+                                      <input type="text" placeholder="10:00" value={mailForm.formTime} onChange={(e) => setMailForm({ ...mailForm, formTime: e.target.value })} style={{flex:1, padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderTopRightRadius:0, borderBottomRightRadius:0}} />
+                                      <select value={mailForm.formAmPm} onChange={(e) => setMailForm({ ...mailForm, formAmPm: e.target.value })} style={{width:'60px', borderTopLeftRadius:0, borderBottomLeftRadius:0, background:'#444', color:'white', border:'1px solid #444'}}>
                                           <option>AM</option><option>PM</option>
                                       </select>
                                   </div>
                               </div>
                           </div>
-
                           <div className="form-group" style={{marginTop:'15px'}}>
                               <label>Payment Amount (LKR)</label>
-                              <input 
-                                type="number" 
-                                value={mailForm.formAmount} 
-                                onChange={(e) => setMailForm({
-                                    ...mailForm, 
-                                    formAmount: e.target.value
-                                })} 
-                                style={{width:'100%', padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderRadius:'4px'}} 
-                              />
+                              <input type="number" value={mailForm.formAmount} onChange={(e) => setMailForm({ ...mailForm, formAmount: e.target.value })} style={{width:'100%', padding:'8px', background:'#333', border:'1px solid #444', color:'white', borderRadius:'4px'}} />
                           </div>
-
                           <div className="form-group" style={{marginTop:'15px'}}>
                               <label>Description</label>
-                              <textarea 
-                                rows="4" 
-                                value={mailForm.formDescription} 
-                                onChange={(e) => setMailForm({
-                                    ...mailForm, 
-                                    formDescription: e.target.value
-                                })} 
-                                style={{width:'100%', background:'#333', color:'white', border:'1px solid #444', padding:'8px', borderRadius:'4px'}}
-                              ></textarea>
+                              <textarea rows="4" value={mailForm.formDescription} onChange={(e) => setMailForm({ ...mailForm, formDescription: e.target.value })} style={{width:'100%', background:'#333', color:'white', border:'1px solid #444', padding:'8px', borderRadius:'4px'}}></textarea>
                           </div>
-
                           <button onClick={generatePDF} className="action-btn primary-btn" style={{marginTop:'20px', width:'100%', background:'#FFD700', color:'black', fontWeight:'bold', padding:'12px', border:'none', borderRadius:'4px', cursor:'pointer'}}>
                               <i className="fa fa-file-pdf-o"></i> Generate & Download PDF
                           </button>
                       </div>
 
+                      {/* RIGHT SIDE: GMAIL SENDER (FIXED TO USE DIRECT LINK) */}
                       <div className="gmail-box" style={{flex:1, minWidth:'300px', background:'#f2f2f2', padding:'20px', borderRadius:'8px', color:'black', border:'1px solid #ccc'}}>
                           <h3 style={{color:'#d93025', marginTop:0, display:'flex', alignItems:'center', borderBottom:'1px solid #ddd', paddingBottom:'10px'}}>
                               <i className="fa fa-google" style={{marginRight:'10px'}}></i> Gmail Sender
                           </h3>
-                          <form onSubmit={sendRealMail} style={{marginTop:'20px'}}>
+                          
+                          <div style={{marginTop:'20px'}}>
                               <div className="form-group" style={{marginBottom:'15px'}}>
                                   <label style={{color:'#333', fontWeight:'bold', display:'block', marginBottom:'5px'}}>To:</label>
-                                  <input 
-                                    type="email" 
-                                    value={mailForm.emailTo} 
-                                    onChange={(e) => setMailForm({
-                                        ...mailForm, 
-                                        emailTo: e.target.value
-                                    })} 
-                                    style={{width:'100%', padding:'10px', background:'white', color:'black', border:'1px solid #ccc', borderRadius:'4px'}} 
-                                    required 
-                                  />
+                                  <input type="email" value={mailForm.emailTo} onChange={(e) => setMailForm({ ...mailForm, emailTo: e.target.value })} style={{width:'100%', padding:'10px', background:'white', color:'black', border:'1px solid #ccc', borderRadius:'4px'}} />
                               </div>
                               <div className="form-group" style={{marginBottom:'15px'}}>
                                   <label style={{color:'#333', fontWeight:'bold', display:'block', marginBottom:'5px'}}>Subject:</label>
-                                  <input 
-                                    type="text" 
-                                    value={mailForm.emailSubject} 
-                                    onChange={(e) => setMailForm({
-                                        ...mailForm, 
-                                        emailSubject: e.target.value
-                                    })} 
-                                    style={{width:'100%', padding:'10px', background:'white', color:'black', border:'1px solid #ccc', borderRadius:'4px'}} 
-                                    required 
-                                  />
+                                  <input type="text" value={mailForm.emailSubject} onChange={(e) => setMailForm({ ...mailForm, emailSubject: e.target.value })} style={{width:'100%', padding:'10px', background:'white', color:'black', border:'1px solid #ccc', borderRadius:'4px'}} />
                               </div>
                               <div className="form-group" style={{marginBottom:'15px'}}>
                                   <label style={{color:'#333', fontWeight:'bold', display:'block', marginBottom:'5px'}}>Message Body:</label>
-                                  <textarea 
-                                    rows="6" 
-                                    value={mailForm.emailBody} 
-                                    onChange={(e) => setMailForm({
-                                        ...mailForm, 
-                                        emailBody: e.target.value
-                                    })} 
-                                    style={{width:'100%', background:'white', color:'black', border:'1px solid #ccc', padding:'10px', borderRadius:'4px'}} 
-                                    required
-                                  ></textarea>
+                                  <textarea rows="6" value={mailForm.emailBody} onChange={(e) => setMailForm({ ...mailForm, emailBody: e.target.value })} style={{width:'100%', background:'white', color:'black', border:'1px solid #ccc', padding:'10px', borderRadius:'4px'}}></textarea>
                               </div>
-                              <div className="form-group" style={{marginBottom:'15px'}}>
-                                  <label style={{color:'#333', fontWeight:'bold', display:'block', marginBottom:'5px'}}>Attach File (PDF):</label>
-                                  <input 
-                                    type="file" 
-                                    onChange={(e) => setMailForm({
-                                        ...mailForm, 
-                                        emailFile: e.target.files[0]
-                                    })} 
-                                    style={{width:'100%', padding:'10px', background:'white', color:'black', border:'1px solid #ccc', borderRadius:'4px'}} 
-                                  />
+                              
+                              <div style={{backgroundColor: '#e8f0fe', color: '#1a73e8', padding: '10px', borderRadius: '4px', marginBottom: '15px', fontSize: '14px'}}>
+                                  ℹ️ <strong>Step 2:</strong> Click the button below to open Gmail, then drag the downloaded PDF into the email.
                               </div>
-                              <button type="submit" style={{backgroundColor:'#1a73e8', color:'white', padding:'12px', border:'none', borderRadius:'4px', fontWeight:'bold', cursor:'pointer', width:'100%', marginTop:'10px'}}>
-                                  Send Mail 🚀
-                              </button>
-                          </form>
+
+                              {/* DIRECT LINK BUTTON - BYPASSES SERVER ERROR */}
+                              <a 
+                                  href={`https://mail.google.com/mail/?authuser=nomorebugsmails@gmail.com&view=cm&fs=1&to=${mailForm.emailTo}&su=${encodeURIComponent(mailForm.emailSubject)}&body=${encodeURIComponent(mailForm.emailBody)}`}
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  style={{
+                                      display: 'block',
+                                      width: '100%',
+                                      backgroundColor: '#1a73e8', 
+                                      color: 'white', 
+                                      padding: '12px', 
+                                      border: 'none', 
+                                      borderRadius: '4px', 
+                                      fontWeight: 'bold', 
+                                      cursor: 'pointer',
+                                      textAlign: 'center',
+                                      textDecoration: 'none'
+                                  }}
+                              >
+                                  Open Gmail & Attach PDF 🚀
+                              </a>
+                          </div>
                       </div>
                   </div>
               </div>
@@ -678,7 +672,7 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
           </div>
         );
 
-      case 'dispatch':
+     case 'dispatch':
           return (
             <div className="section-container">
               <h1 style={{ color: '#FFD700' }}>Worker Dispatch Control</h1>
@@ -731,17 +725,44 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
                               </span>
                             </div>
                             <h4 style={{color:'white', margin:'0 0 10px 0'}}>👤 {item.worker}</h4>
-                            <button style={{
-                              backgroundColor:'#4CAF50', color:'white', border:'none', padding:'8px 15px', borderRadius:'5px', cursor:'pointer', fontWeight:'bold'
-                            }} onClick={() => {
-                                // In a real app, this would send an email/SMS to the worker
-                                alert(`🚀 Job Officially Dispatched to ${item.worker}!\n\n(Notification sent to worker)`);
-                                // Optional: Remove from list after dispatching
-                                // const newQueue = dispatchQueue.filter((_, i) => i !== index);
-                                // setDispatchQueue(newQueue);
-                            }}>
-                              Confirm Dispatch 🚀
-                            </button>
+                            
+                            {/* --- BUTTONS --- */}
+                            {!item.isDispatched ? (
+                              <button 
+                                  style={{
+                                      backgroundColor:'#4CAF50', color:'white', border:'none', padding:'8px 15px', borderRadius:'5px', cursor:'pointer', fontWeight:'bold', width: '100%'
+                                  }} 
+                                  onClick={() => handleConfirmDispatch(item)}
+                              >
+                                  Confirm Dispatch 🚀
+                              </button>
+                            ) : (
+                              <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                  
+                                  {/* 1. GMAIL LINK FOR CUSTOMER (Specific Account) */}
+                                  <a 
+                                      href={`https://mail.google.com/mail/?authuser=nomorebugsmails@gmail.com&view=cm&fs=1&to=${item.email || ''}&su=Service%20Confirmation%20-%20PIN%20Code&body=Dear%20${item.customer},%0D%0A%0D%0APLEASE%20SEE%20ATTACHED%20PDF%20FOR%20YOUR%20PIN.%0D%0A%0D%0AThank%20you!`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ textDecoration: 'none', backgroundColor: '#007bff', color: 'white', padding: '8px', textAlign: 'center', borderRadius: '5px', fontSize: '14px' }}
+                                  >
+                                      📧 Open Gmail (Customer)
+                                  </a>
+
+                                  {/* 2. GMAIL LINK FOR WORKER (Specific Account) */}
+                                  <a 
+                                      href={`https://mail.google.com/mail/?authuser=nomorebugsmails@gmail.com&view=cm&fs=1&to=${item.workerEmail || ''}&su=NEW%20JOB%20ALERT!&body=Hello%20${item.worker},%0D%0A%0D%0AYOU%20HAVE%20A%20NEW%20JOB!%0D%0A%0D%0ACUSTOMER:%20${item.customer}%0D%0AADDRESS:%20${item.fullAddress || 'N/A'},%20${item.location},%20${item.postalCode || ''}%0D%0APHONE:%20${item.mobile || 'N/A'}%0D%0ASERVICE:%20${item.bug}%0D%0A%0D%0A1.%20Go%20to%20this%20address.%0D%0A2.%20Call%20customer%20if%20needed.%0D%0A3.%20Ask%20for%20PIN.`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ textDecoration: 'none', backgroundColor: '#17a2b8', color: 'white', padding: '8px', textAlign: 'center', borderRadius: '5px', fontSize: '14px' }}
+                                  >
+                                      👷 Worker Gmail (With Details)
+                                  </a>
+                                  
+                                  <div style={{color: '#4CAF50', fontSize: '12px', textAlign: 'center', fontWeight: 'bold', marginTop: '5px'}}>✅ Job Active in DB</div>
+                              </div>
+                            )}
+
                           </div>
                         ) : (
                           
@@ -804,33 +825,6 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
             </div>
           );
 
-      case 'calendar':
-        return (
-          <div className="section-container">
-            <h1 style={{ color: '#FFD700' }}>Schedule</h1>
-            {nextJob && <div className="upcoming-alert">🔔 <strong>Upcoming:</strong> {nextJob.client} on the <strong>{nextJob.day}th</strong>!</div>}
-            <div className="calendar-grid">
-              {[...Array(30)].map((_, i) => {
-                const day = i + 1;
-                const isBlocked = blockedDates.includes(day);
-                const jobDetails = scheduledJobs.find(j => j.day === day);
-                const isToday = day === currentDay;
-                let statusClass = 'available';
-                let label = ''; 
-                if (isBlocked) { statusClass = 'blocked'; label = 'CLOSED'; }
-                if (jobDetails) { statusClass = 'has-job'; label = jobDetails.client; }
-                if (isToday) { statusClass += ' today'; } 
-                return (
-                  <div key={day} onClick={() => toggleDate(day)} className={`calendar-day ${statusClass}`}>
-                    <span className="day-number">{day}</span>
-                    <span className="day-status">{label}</span>
-                    {isToday && <span className="today-badge">TODAY</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
 
       case 'users':
         return (
@@ -840,7 +834,6 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
               <button onClick={() => setUserTab('workers')} className={`sub-tab-btn ${userTab === 'workers' ? 'active' : ''}`}>Workers</button>
               <button onClick={() => setUserTab('customers')} className={`sub-tab-btn ${userTab === 'customers' ? 'active' : ''}`}>Customers</button>
               
-              {/* REFRESH BUTTON */}
               <button 
                   onClick={fetchWorkers} 
                   style={{
@@ -945,7 +938,6 @@ const [selectedManualWorker, setSelectedManualWorker] = useState("");
             <button onClick={() => setActiveView('requests')} className={`menu-btn ${activeView === 'requests' || activeView === 'mail_window' ? 'active' : ''}`}><i className="fa fa-file-text-o"></i></button>
             <button onClick={() => setActiveView('payments')} className={`menu-btn ${activeView === 'payments' ? 'active' : ''}`}><i className="fa fa-credit-card"></i></button>
             <button onClick={() => setActiveView('dispatch')} className={`menu-btn ${activeView === 'dispatch' ? 'active' : ''}`}><i className="fa fa-users"></i></button>
-            <button onClick={() => setActiveView('calendar')} className={`menu-btn ${activeView === 'calendar' ? 'active' : ''}`}><i className="fa fa-calendar"></i></button>
             <button onClick={() => setActiveView('users')} className={`menu-btn ${activeView === 'users' ? 'active' : ''}`}><i className="fa fa-id-card"></i></button>
         </div>
         <div className="sidebar-bottom"><button onClick={onLogout} className="logout-btn"><i className="fa fa-sign-out"></i></button></div>
